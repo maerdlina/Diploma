@@ -1,25 +1,24 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import colors
+from matplotlib.widgets import TextBox
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import spsolve
 from scipy.ndimage import zoom
 import matplotlib
+import tkinter as tk
+from tkinter import messagebox
+
 matplotlib.use('TkAgg')  # Установка бэкенда
 
-def beso(nu, length, width, volfrac, penal, rmin, ft):
+
+def beso(nu, length, width, volfrac, penal, rmin, fx, fy, load_value):
     Emin = 1e-9
     Emax = 1.0
 
     # Определяем количество элементов на основе длины и ширины
     nelx = int(length * 50)  # Увеличиваем плотность сетки
     nely = int(width * 50)  # Увеличиваем плотность сетки
-
-    # Ввод параметров нагрузки
-    print("Введите координаты точки приложения нагрузки (в узлах):")
-    fx = int(input(f"Координата x (от 0 до {nelx}): "))
-    fy = int(input(f"Координата y (от 0 до {nely}): "))
-    load_value = float(input("Введите значение нагрузки (положительное вниз): "))
 
     # Определяем число степеней свободы
     ndof = 2 * (nelx + 1) * (nely + 1)
@@ -90,7 +89,7 @@ def beso(nu, length, width, volfrac, penal, rmin, ft):
         (x[:], g) = optimal(nelx, nely, x, volfrac, dc, dv, g)
         xPhys[:] = x
 
-        change = np.linalg.norm(x.reshape(nelx * nely, 1) - xold.reshape(nelx * nely, 1), np.inf)
+        change = np.linalg.norm(x.reshape(nely * nelx, 1) - xold.reshape(nely * nelx, 1), np.inf)
 
         # Вывод на экран
         im.set_array(zoom(-xPhys.reshape((nelx, nely)).T, 2, order=1))
@@ -110,6 +109,7 @@ def beso(nu, length, width, volfrac, penal, rmin, ft):
     im.set_array(zoom(-xx.T, 2, order=1))
     fig.canvas.draw()
     plt.show()
+
 
 # Генерация матрицы жёсткости
 def lk_programmatically(nu):
@@ -134,6 +134,7 @@ def lk_programmatically(nu):
     ])
     return KE
 
+
 # Генерация edof и глобальной жёсткости
 def generate_edof_and_stiffness(nelx, nely):
     edofMat = np.zeros((nelx * nely, 8), dtype=int)
@@ -142,10 +143,12 @@ def generate_edof_and_stiffness(nelx, nely):
             el = ely + elx * nely
             n1 = (nely + 1) * elx + ely
             n2 = (nely + 1) * (elx + 1) + ely
-            edofMat[el, :] = np.array([2 * n1, 2 * n1 + 1, 2 * n2, 2 * n2 + 1, 2 * n2 + 2, 2 * n2 + 3, 2 * n1 + 2, 2 * n1 + 3])
+            edofMat[el, :] = np.array(
+                [2 * n1, 2 * n1 + 1, 2 * n2, 2 * n2 + 1, 2 * n2 + 2, 2 * n2 + 3, 2 * n1 + 2, 2 * n1 + 3])
     iK = np.kron(edofMat, np.ones((8, 1))).flatten()
     jK = np.kron(edofMat, np.ones((1, 8))).flatten()
     return edofMat, iK, jK
+
 
 # Фильтрация
 def filter_matrix(nelx, nely, rmin):
@@ -170,6 +173,7 @@ def filter_matrix(nelx, nely, rmin):
     Hs = H.sum(1)
     return H, Hs
 
+
 # Критерий оптимальности
 def optimal(nelx, nely, x, volfrac, dc, dv, g):
     l1 = 0
@@ -177,12 +181,60 @@ def optimal(nelx, nely, x, volfrac, dc, dv, g):
     move = 0.2
     while (l2 - l1) / (l1 + l2) > 1e-3:
         lmid = 0.5 * (l2 + l1)
-        xnew = np.maximum(0.001, np.maximum(x - move, np.minimum(1.0, np.minimum(x + move, x * np.sqrt(-dc / dv / lmid)))))
+        xnew = np.maximum(0.001,
+                          np.maximum(x - move, np.minimum(1.0, np.minimum(x + move, x * np.sqrt(-dc / dv / lmid)))))
         if np.sum(xnew) - volfrac * nelx * nely > 0:
             l1 = lmid
         else:
             l2 = lmid
     return xnew, g
 
+
+# Функция для создания интерфейса ввода данных
+def create_input_interface():
+    fig, ax = plt.subplots(2, 2, figsize=(8, 6))
+
+    # Поля ввода
+    ax[0, 0].set_title("Координаты нагрузки")
+    ax[0, 0].text(0.5, 0.8, "Координата x:", ha='center')
+    x_input = TextBox(ax[0, 0], 'x', initial='0')
+
+    ax[0, 1].text(0.5, 0.8, "Координата y:", ha='center')
+    y_input = TextBox(ax[0, 1], 'y', initial='0')
+
+    ax[1, 0].set_title("Величина нагрузки")
+    load_input = TextBox(ax[1, 0], 'Load', initial='0')
+
+    # Кнопка для запуска расчета
+    def submit(event):
+        try:
+            fx = int(x_input.text)
+            fy = int(y_input.text)
+            load_value = float(load_input.text)
+
+            # Проверка на корректность введенных данных
+            if fx < 0 or fx > 100:
+                raise ValueError("Координата x должна быть в диапазоне от 0 до 100.")
+            if fy < 0 or fy > 50:
+                raise ValueError("Координата y должна быть в диапазоне от 0 до 50.")
+            if load_value <= 0:
+                raise ValueError("Величина нагрузки должна быть положительной.")
+
+            plt.close(fig)  # Закрываем окно ввода
+            beso(nu=0.3, length=2, width=1, volfrac=0.4, penal=3.0, rmin=1.5, fx=fx, fy=fy, load_value=load_value)
+
+        except ValueError as e:
+            # Выводим предупреждение
+            root = tk.Tk()
+            root.withdraw()  # Скрываем главное окно
+            messagebox.showerror("Ошибка ввода", str(e))
+            root.destroy()
+
+    ax[1, 1].text(0.5, 0.5, "Нажмите Enter для запуска", ha='center')
+    fig.canvas.mpl_connect('key_press_event', lambda event: submit(event) if event.key == 'enter' else None)
+
+    plt.show()
+
+
 if __name__ == "__main__":
-    beso(nu=0.3, length=2, width=1, volfrac=0.4, penal=3.0, rmin=1.5, ft=0)
+    create_input_interface()

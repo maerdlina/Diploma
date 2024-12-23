@@ -5,50 +5,49 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import spsolve
 from scipy.ndimage import zoom
 import matplotlib
-matplotlib.use('TkAgg')  # Установка бэкенда
+matplotlib.use('TkAgg')  # Set backend
 
-def beso(nu, length, width, volfrac, penal, rmin, ft):
+def main(nu, length, width, volfrac, penal, rmin):
     Emin = 1e-9
     Emax = 1.0
 
-    # Определяем количество элементов на основе длины и ширины
-    nelx = int(length * 50)  # Увеличиваем плотность сетки
-    nely = int(width * 50)  # Увеличиваем плотность сетки
+    # Define number of elements based on length and width
+    nelx = int(length * 50)  # Increase mesh density
+    nely = int(width * 50)  # Increase mesh density
 
-    # Ввод параметров нагрузки
+    # Input load parameters
     print("Введите координаты точки приложения нагрузки (в узлах):")
     fx = int(input(f"Координата x (от 0 до {nelx}): "))
     fy = int(input(f"Координата y (от 0 до {nely}): "))
     load_value = float(input("Введите значение нагрузки (положительное вниз): "))
 
-    # Определяем число степеней свободы
+    # Define degrees of freedom
     ndof = 2 * (nelx + 1) * (nely + 1)
 
-    # Создаём начальные значения
+    # Initialize values
     x = volfrac * np.ones(nely * nelx, dtype=float)
     xold = x.copy()
     xPhys = x.copy()
-    g = 0
 
     # FE
     KE = lk_programmatically(nu)
     edofMat, iK, jK = generate_edof_and_stiffness(nelx, nely)
 
-    # Фильтрация
+    # Filtering
     H, Hs = filter_matrix(nelx, nely, rmin)
 
-    # Закрепления
+    # Fixing
     dofs = np.arange(2 * (nelx + 1) * (nely + 1))
     fixed = np.union1d(dofs[0:2 * (nely + 1):2], np.array([2 * (nelx + 1) * (nely + 1) - 1]))
     free = np.setdiff1d(dofs, fixed)
 
-    # Нагрузки
+    # Loads
     f = np.zeros((ndof, 1))
     u = np.zeros((ndof, 1))
-    load_dof = 2 * ((nely + 1) * fx + fy) + 1  # DOF для указанной точки (нагрузка по y)
+    load_dof = 2 * ((nely + 1) * fx + fy) + 1  # DOF for specified point (load in y)
     f[load_dof, 0] = load_value
 
-    # Построение
+    # Plotting
     plt.ion()
     fig, ax = plt.subplots(figsize=(10, 5))
     im = ax.imshow(
@@ -68,42 +67,43 @@ def beso(nu, length, width, volfrac, penal, rmin, ft):
     dc = np.ones(nely * nelx)
     ce = np.ones(nely * nelx)
 
-    while change > 0.01 and loop < 100:
+    while change > 0.01 and loop < 2000:
         loop += 1
 
-        # Решение FE
+        # FE solution
         sK = ((KE.flatten()[np.newaxis]).T * (Emin + (xPhys) ** penal * (Emax - Emin))).flatten(order='F')
         K = coo_matrix((sK, (iK, jK)), shape=(ndof, ndof)).tocsc()
         K = K[free, :][:, free]
         u[free, 0] = spsolve(K, f[free, 0])
 
-        # Чувствительность
+        # Sensitivity
         ce[:] = (np.dot(u[edofMat].reshape(nelx * nely, 8), KE) * u[edofMat].reshape(nelx * nely, 8)).sum(1)
         dc[:] = (-penal * xPhys ** (penal - 1) * (Emax - Emin)).reshape(nely * nelx) * ce
         dv[:] = np.ones(nely * nelx)
 
-        # Фильтрация
+        # Filtering
         dc[:] = np.asarray((H * (x * dc))[np.newaxis].T / Hs)[:, 0] / np.maximum(0.001, x)
 
-        # Критерий оптимальности
+        # Optimality criterion
         xold[:] = x
-        (x[:], g) = optimal(nelx, nely, x, volfrac, dc, dv, g)
+        (x[:], g) = oc(nelx, nely, x, volfrac, dc, dv)
         xPhys[:] = x
 
-        change = np.linalg.norm(x.reshape(nelx * nely, 1) - xold.reshape(nelx * nely, 1), np.inf)
+        change = np.linalg.norm(x.reshape(nely * nelx, 1) - xold.reshape(nely * nelx, 1), np.inf)
 
-        # Вывод на экран
+        # Output to screen
         im.set_array(zoom(-xPhys.reshape((nelx, nely)).T, 2, order=1))
         plt.pause(0.01)
         fig.canvas.draw()
 
+        # Save image every 5 iterations
         if loop % 5 == 0:
             plt.savefig(f'iteration_{loop}.png', dpi=300)
 
     plt.ioff()
     xx = x.reshape(nely, nelx, order='F')
 
-    # Вывод результата
+    # Display result
     ax.xaxis.set_visible(False)
     ax.yaxis.set_visible(False)
     ax.grid(False)
@@ -111,7 +111,7 @@ def beso(nu, length, width, volfrac, penal, rmin, ft):
     fig.canvas.draw()
     plt.show()
 
-# Генерация матрицы жёсткости
+# Generate stiffness matrix
 def lk_programmatically(nu):
     E = 1
     a = 1 / 2 - nu / 6
@@ -134,7 +134,7 @@ def lk_programmatically(nu):
     ])
     return KE
 
-# Генерация edof и глобальной жёсткости
+# Generate edof and global stiffness
 def generate_edof_and_stiffness(nelx, nely):
     edofMat = np.zeros((nelx * nely, 8), dtype=int)
     for elx in range(nelx):
@@ -147,7 +147,7 @@ def generate_edof_and_stiffness(nelx, nely):
     jK = np.kron(edofMat, np.ones((1, 8))).flatten()
     return edofMat, iK, jK
 
-# Фильтрация
+# Filtering
 def filter_matrix(nelx, nely, rmin):
     nfilter = int(nelx * nely * (2 * (np.ceil(rmin) - 1) + 1) ** 2)
     iH = np.zeros(nfilter, dtype=int)
@@ -170,19 +170,26 @@ def filter_matrix(nelx, nely, rmin):
     Hs = H.sum(1)
     return H, Hs
 
-# Критерий оптимальности
-def optimal(nelx, nely, x, volfrac, dc, dv, g):
-    l1 = 0
-    l2 = 1e9
-    move = 0.2
-    while (l2 - l1) / (l1 + l2) > 1e-3:
-        lmid = 0.5 * (l2 + l1)
-        xnew = np.maximum(0.001, np.maximum(x - move, np.minimum(1.0, np.minimum(x + move, x * np.sqrt(-dc / dv / lmid)))))
+# Optimality criterion
+def oc(nelx, nely, x, volfrac, dc, dv):
+    l1, l2 = 0, 1e9  # Initialize Lagrange multipliers
+    move = 0.2  # Maximum change
+    while (l2 - l1) / (l2 + l1) > 1e-5:  # Stop criterion
+        lmid = 0.5 * (l1 + l2)
+        xnew = np.maximum(0, np.minimum(1, x * (np.sqrt(-dc / dv / lmid))))  # Update design variable
         if np.sum(xnew) - volfrac * nelx * nely > 0:
-            l1 = lmid
+            l1 = lmid  # Adjust lower bound
         else:
-            l2 = lmid
-    return xnew, g
+            l2 = lmid  # Adjust upper bound
+    return xnew, 0  # Return updated design variable and gradient (not used here)
 
 if __name__ == "__main__":
-    beso(nu=0.3, length=2, width=1, volfrac=0.4, penal=3.0, rmin=1.5, ft=0)
+    # Parameters
+    nu = 0.3  # Poisson's ratio
+    length = 1.0  # Length of the beam
+    width = 0.2  # Width of the beam
+    volfrac = 0.5  # Volume fraction
+    penal = 3.0  # Penalty exponent
+    rmin = 1.5  # Minimum radius for filtering
+
+    main(nu, length, width, volfrac, penal, rmin)  # Run the optimization

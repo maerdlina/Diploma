@@ -8,7 +8,6 @@ import matplotlib.ticker as ticker
 import matplotlib
 matplotlib.use("TkAgg")
 import ctypes
-import joblib
 
 # MAIN DRIVER
 def main(nu, length, width, volfrac, penal, rmin, ft):
@@ -179,8 +178,8 @@ def oc(nelx, nely, x, volfrac, dc, dv, g):
             l2 = lmid
     return (xnew, gt)
 
-def load_model(filename):
-    return joblib.load(filename)
+# def load_model(filename):
+#     return joblib.load(filename)
 
 if __name__ == "__main__":
     nu = 0.3
