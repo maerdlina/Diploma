@@ -1,53 +1,42 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import colors
-from matplotlib.widgets import TextBox
+from matplotlib.widgets import TextBox, Button
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import spsolve
 from scipy.ndimage import zoom
-import matplotlib
 import tkinter as tk
 from tkinter import messagebox
-
+import matplotlib
 matplotlib.use('TkAgg')  # Установка бэкенда
-
 
 def beso(nu, length, width, volfrac, penal, rmin, fx, fy, load_value):
     Emin = 1e-9
     Emax = 1.0
 
-    # Определяем количество элементов на основе длины и ширины
     nelx = int(length * 50)  # Увеличиваем плотность сетки
     nely = int(width * 50)  # Увеличиваем плотность сетки
 
-    # Определяем число степеней свободы
     ndof = 2 * (nelx + 1) * (nely + 1)
 
-    # Создаём начальные значения
     x = volfrac * np.ones(nely * nelx, dtype=float)
     xold = x.copy()
     xPhys = x.copy()
     g = 0
 
-    # FE
     KE = lk_programmatically(nu)
     edofMat, iK, jK = generate_edof_and_stiffness(nelx, nely)
-
-    # Фильтрация
     H, Hs = filter_matrix(nelx, nely, rmin)
 
-    # Закрепления
     dofs = np.arange(2 * (nelx + 1) * (nely + 1))
     fixed = np.union1d(dofs[0:2 * (nely + 1):2], np.array([2 * (nelx + 1) * (nely + 1) - 1]))
     free = np.setdiff1d(dofs, fixed)
 
-    # Нагрузки
     f = np.zeros((ndof, 1))
     u = np.zeros((ndof, 1))
-    load_dof = 2 * ((nely + 1) * fx + fy) + 1  # DOF для указанной точки (нагрузка по y)
+    load_dof = 2 * ((nely + 1) * fx + fy) + 1
     f[load_dof, 0] = load_value
 
-    # Построение
     plt.ion()
     fig, ax = plt.subplots(figsize=(10, 5))
     im = ax.imshow(
@@ -70,28 +59,23 @@ def beso(nu, length, width, volfrac, penal, rmin, fx, fy, load_value):
     while change > 0.01 and loop < 100:
         loop += 1
 
-        # Решение FE
         sK = ((KE.flatten()[np.newaxis]).T * (Emin + (xPhys) ** penal * (Emax - Emin))).flatten(order='F')
         K = coo_matrix((sK, (iK, jK)), shape=(ndof, ndof)).tocsc()
         K = K[free, :][:, free]
         u[free, 0] = spsolve(K, f[free, 0])
 
-        # Чувствительность
         ce[:] = (np.dot(u[edofMat].reshape(nelx * nely, 8), KE) * u[edofMat].reshape(nelx * nely, 8)).sum(1)
         dc[:] = (-penal * xPhys ** (penal - 1) * (Emax - Emin)).reshape(nely * nelx) * ce
         dv[:] = np.ones(nely * nelx)
 
-        # Фильтрация
         dc[:] = np.asarray((H * (x * dc))[np.newaxis].T / Hs)[:, 0] / np.maximum(0.001, x)
 
-        # Критерий оптимальности
         xold[:] = x
         (x[:], g) = optimal(nelx, nely, x, volfrac, dc, dv, g)
         xPhys[:] = x
 
         change = np.linalg.norm(x.reshape(nely * nelx, 1) - xold.reshape(nely * nelx, 1), np.inf)
 
-        # Вывод на экран
         im.set_array(zoom(-xPhys.reshape((nelx, nely)).T, 2, order=1))
         plt.pause(0.01)
         fig.canvas.draw()
@@ -102,7 +86,6 @@ def beso(nu, length, width, volfrac, penal, rmin, fx, fy, load_value):
     plt.ioff()
     xx = x.reshape(nely, nelx, order='F')
 
-    # Вывод результата
     ax.xaxis.set_visible(False)
     ax.yaxis.set_visible(False)
     ax.grid(False)
@@ -110,8 +93,6 @@ def beso(nu, length, width, volfrac, penal, rmin, fx, fy, load_value):
     fig.canvas.draw()
     plt.show()
 
-
-# Генерация матрицы жёсткости
 def lk_programmatically(nu):
     E = 1
     a = 1 / 2 - nu / 6
@@ -134,8 +115,6 @@ def lk_programmatically(nu):
     ])
     return KE
 
-
-# Генерация edof и глобальной жёсткости
 def generate_edof_and_stiffness(nelx, nely):
     edofMat = np.zeros((nelx * nely, 8), dtype=int)
     for elx in range(nelx):
@@ -149,8 +128,6 @@ def generate_edof_and_stiffness(nelx, nely):
     jK = np.kron(edofMat, np.ones((1, 8))).flatten()
     return edofMat, iK, jK
 
-
-# Фильтрация
 def filter_matrix(nelx, nely, rmin):
     nfilter = int(nelx * nely * (2 * (np.ceil(rmin) - 1) + 1) ** 2)
     iH = np.zeros(nfilter, dtype=int)
@@ -173,8 +150,6 @@ def filter_matrix(nelx, nely, rmin):
     Hs = H.sum(1)
     return H, Hs
 
-
-# Критерий оптимальности
 def optimal(nelx, nely, x, volfrac, dc, dv, g):
     l1 = 0
     l2 = 1e9
@@ -189,52 +164,91 @@ def optimal(nelx, nely, x, volfrac, dc, dv, g):
             l2 = lmid
     return xnew, g
 
-
-# Функция для создания интерфейса ввода данных
 def create_input_interface():
-    fig, ax = plt.subplots(2, 2, figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.axis('off')
 
-    # Поля ввода
-    ax[0, 0].set_title("Координаты нагрузки")
-    ax[0, 0].text(0.5, 0.8, "Координата x:", ha='center')
-    x_input = TextBox(ax[0, 0], 'x', initial='0')
+    # Поля для ввода
+    ax.text(0.00, 0.9, "Введите параметры балки", fontsize=14, transform=ax.transAxes)
 
-    ax[0, 1].text(0.5, 0.8, "Координата y:", ha='center')
-    y_input = TextBox(ax[0, 1], 'y', initial='0')
+    # Изображение после текста
+    img = plt.imread("beam_image.png")  # Убедитесь, что изображение "beam_image.png" находится в рабочем каталоге
+    ax_img = plt.axes([0.2, 0.6, 0.5, 0.2])  # Создаем ось для изображения
+    ax_img.imshow(img)
+    ax_img.axis('off')
 
-    ax[1, 0].set_title("Величина нагрузки")
-    load_input = TextBox(ax[1, 0], 'Load', initial='0')
+    # Поле для длины
+    ax.text(0.05, 0.55, "Длина балки (м):", fontsize=12, transform=ax.transAxes)
+    length_ax = plt.axes([0.15, 0.48, 0.3, 0.04])
+    length_input = TextBox(length_ax, '', initial='2')
 
-    # Кнопка для запуска расчета
-    def submit(event):
+    # Поле для ширины
+    ax.text(0.5, 0.55, "Ширина балки(м):", fontsize=12, transform=ax.transAxes)
+    width_ax = plt.axes([0.5, 0.48, 0.3, 0.04])
+    width_input = TextBox(width_ax, '', initial='1')
+
+    # Поле для нагрузки
+    ax.text(0.05, 0.35, "Величина нагрузки (Н):", fontsize=12, transform=ax.transAxes)
+    load_ax = plt.axes([0.45, 0.37, 0.3, 0.04])
+    load_input = TextBox(load_ax, '', initial='10')
+
+    # Функция отображения балки
+    def show_beam():
         try:
-            fx = int(x_input.text)
-            fy = int(y_input.text)
+            length = float(length_input.text)
+            width = float(width_input.text)
             load_value = float(load_input.text)
 
-            # Проверка на корректность введенных данных
-            if fx < 0 or fx > 100:
-                raise ValueError("Координата x должна быть в диапазоне от 0 до 100.")
-            if fy < 0 or fy > 50:
-                raise ValueError("Координата y должна быть в диапазоне от 0 до 50.")
-            if load_value <= 0:
-                raise ValueError("Величина нагрузки должна быть положительной.")
+            if length <= 0 or width <= 0 or load_value <= 0:
+                raise ValueError("Длина, ширина балки и нагрузка должны быть положительными.")
 
-            plt.close(fig)  # Закрываем окно ввода
-            beso(nu=0.3, length=2, width=1, volfrac=0.4, penal=3.0, rmin=1.5, fx=fx, fy=fy, load_value=load_value)
-
+            fig_beam, ax_beam = plt.subplots(figsize=(8, 4))
+            ax_beam.set_xlim(-0.5, length + 0.5)
+            ax_beam.set_ylim(-width - 0.5, 0.5)
+            ax_beam.plot([0, length], [0, 0], color='blue', lw=4)
+            ax_beam.plot([0, length], [-width, -width], color='blue', lw=4)
+            ax_beam.plot([0, 0], [0, -width], color='blue', lw=4)
+            ax_beam.plot([length, length], [0, -width], color='blue', lw=4)
+            ax_beam.annotate(
+                '', xy=(0, 0), xytext=(0, 0.5),
+                arrowprops=dict(facecolor='red', shrink=0.05)
+            )
+            ax_beam.text(0.100, 0.15, f'Нагрузка: {load_value}Н', fontsize=12, color='red')
+            ax_beam.set_aspect('equal', adjustable='box')
+            ax_beam.axis('off')
+            ax_beam.set_title("Отображение балки")
+            plt.show()
         except ValueError as e:
-            # Выводим предупреждение
-            root = tk.Tk()
-            root.withdraw()  # Скрываем главное окно
+            tk.Tk().withdraw()
             messagebox.showerror("Ошибка ввода", str(e))
-            root.destroy()
 
-    ax[1, 1].text(0.5, 0.5, "Нажмите Enter для запуска", ha='center')
-    fig.canvas.mpl_connect('key_press_event', lambda event: submit(event) if event.key == 'enter' else None)
+    # Функция запуска оптимизации
+    def start_optimization():
+        try:
+            length = float(length_input.text)
+            width = float(width_input.text)
+            load_value = float(load_input.text)
+
+            if length <= 0 or width <= 0 or load_value <= 0:
+                raise ValueError("Длина, ширина балки и нагрузка должны быть положительными.")
+
+            plt.close(fig)
+            beso(nu=0.3, length=length, width=width, volfrac=0.4, penal=3.0, rmin=1.5, fx=0, fy=0, load_value=load_value)
+        except ValueError as e:
+            tk.Tk().withdraw()
+            messagebox.showerror("Ошибка ввода", str(e))
+
+    # Кнопка "Отобразить балку"
+    button_ax1 = plt.axes([0.1, 0.1, 0.35, 0.1])
+    button_show_beam = Button(button_ax1, "Отобразить балку")
+    button_show_beam.on_clicked(lambda event: show_beam())
+
+    # Кнопка "Запуск оптимизации"
+    button_ax2 = plt.axes([0.55, 0.1, 0.35, 0.1])
+    button_optimize = Button(button_ax2, "Запуск оптимизации")
+    button_optimize.on_clicked(lambda event: start_optimization())
 
     plt.show()
-
 
 if __name__ == "__main__":
     create_input_interface()
