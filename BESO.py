@@ -10,13 +10,18 @@ from tkinter import messagebox
 import matplotlib
 matplotlib.use('TkAgg')  # Установка бэкенда
 
+# Глобальная переменная для остановки оптимизации
+stop_optimization = False
+
 def beso(nu, length, width, volfrac, penal, rmin, fx, fy, load_value):
+    global stop_optimization
+    stop_optimization = False
+
     Emin = 1e-9
     Emax = 1.0
 
     nelx = int(length * 50)  # Увеличиваем плотность сетки
     nely = int(width * 50)  # Увеличиваем плотность сетки
-
     ndof = 2 * (nelx + 1) * (nely + 1)
 
     x = volfrac * np.ones(nely * nelx, dtype=float)
@@ -37,10 +42,10 @@ def beso(nu, length, width, volfrac, penal, rmin, fx, fy, load_value):
     load_dof = 2 * ((nely + 1) * fx + fy) + 1
     f[load_dof, 0] = load_value
 
-    plt.ion()
-    fig, ax = plt.subplots(figsize=(10, 5))
+    # Создаем окно для графика и кнопки
+    fig, ax = plt.subplots(figsize=(10, 6))
     im = ax.imshow(
-        zoom(-xPhys.reshape((nelx, nely)).T, 2, order=1),
+        zoom(xPhys.reshape((nely, nelx)), 2, order=1),
         cmap='gray',
         interpolation='bicubic',
         norm=colors.Normalize(vmin=-1, vmax=0)
@@ -48,15 +53,37 @@ def beso(nu, length, width, volfrac, penal, rmin, fx, fy, load_value):
     ax.xaxis.tick_top()
     ax.set_title("Оптимизация топологии")
     fig.colorbar(im, ax=ax, orientation="horizontal")
+
+    # Добавляем кнопку "Остановить оптимизацию" под графиком
+    stop_button_ax = fig.add_axes([0.4, 0.01, 0.2, 0.05])
+    stop_button = Button(stop_button_ax, "Остановить оптимизацию")
+
+    # Функция обработки нажатия кнопки
+    def stop_optimization_callback(event):
+        global stop_optimization
+        stop_optimization = True
+        print("Оптимизация остановлена пользователем.")
+        show_completion_message("Оптимизация завершена!")
+
+    stop_button.on_clicked(stop_optimization_callback)
+
+    plt.ion()
     fig.show()
 
     loop = 0
     change = 1
+    min_change_threshold = 1e-4
+    min_change_count = 0
+    max_min_change_count = 10
     dv = np.ones(nely * nelx)
     dc = np.ones(nely * nelx)
     ce = np.ones(nely * nelx)
 
-    while change > 0.01 and loop < 100:
+    while loop < 100:
+        if stop_optimization:
+            print("Оптимизация остановлена пользователем.")
+            break
+
         loop += 1
 
         sK = ((KE.flatten()[np.newaxis]).T * (Emin + (xPhys) ** penal * (Emax - Emin))).flatten(order='F')
@@ -76,6 +103,15 @@ def beso(nu, length, width, volfrac, penal, rmin, fx, fy, load_value):
 
         change = np.linalg.norm(x.reshape(nely * nelx, 1) - xold.reshape(nely * nelx, 1), np.inf)
 
+        if change < min_change_threshold:
+            min_change_count += 1
+        else:
+            min_change_count = 0
+
+        if min_change_count >= max_min_change_count:
+            print("Минимальные изменения обнаружены, завершение...")
+            break
+
         im.set_array(zoom(-xPhys.reshape((nelx, nely)).T, 2, order=1))
         plt.pause(0.01)
         fig.canvas.draw()
@@ -89,8 +125,53 @@ def beso(nu, length, width, volfrac, penal, rmin, fx, fy, load_value):
     ax.xaxis.set_visible(False)
     ax.yaxis.set_visible(False)
     ax.grid(False)
-    im.set_array(zoom(-xx.T, 2, order=1))
+    im.set_array(zoom(-xx, 2, order=1))
     fig.canvas.draw()
+    plt.show()
+
+    # Отображаем сообщение по завершению
+    show_completion_message("Оптимизация завершена!")
+
+# Функция для вывода сообщения о завершении
+def show_completion_message(message):
+    root = tk.Tk()
+    root.withdraw()
+    messagebox.showinfo("Завершение", message)
+
+def create_input_interface():
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.axis('off')
+
+    ax.text(0.00, 0.9, "Введите параметры балки", fontsize=14, transform=ax.transAxes)
+
+    length_ax = plt.axes([0.15, 0.48, 0.3, 0.04])
+    length_input = TextBox(length_ax, '', initial='2')
+
+    width_ax = plt.axes([0.5, 0.48, 0.3, 0.04])
+    width_input = TextBox(width_ax, '', initial='1')
+
+    load_ax = plt.axes([0.45, 0.37, 0.3, 0.04])
+    load_input = TextBox(load_ax, '', initial='10')
+
+    def start_optimization():
+        try:
+            length = float(length_input.text)
+            width = float(width_input.text)
+            load_value = float(load_input.text)
+
+            if length <= 0 or width <= 0 or load_value <= 0:
+                raise ValueError("Длина, ширина балки и нагрузка должны быть положительными.")
+
+            plt.close(fig)
+            beso(nu=0.3, length=length, width=width, volfrac=0.4, penal=3.0, rmin=1.5, fx=0, fy=0, load_value=load_value)
+        except ValueError as e:
+            tk.Tk().withdraw()
+            messagebox.showerror("Ошибка ввода", str(e))
+
+    button_ax2 = plt.axes([0.55, 0.1, 0.35, 0.1])
+    button_optimize = Button(button_ax2, "Запуск оптимизации")
+    button_optimize.on_clicked(lambda event: start_optimization())
+
     plt.show()
 
 def lk_programmatically(nu):
