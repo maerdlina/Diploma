@@ -8,7 +8,7 @@ from scipy.ndimage import zoom
 import tkinter as tk
 from tkinter import messagebox
 import matplotlib
-matplotlib.use('TkAgg')  # Установка бэкенда
+matplotlib.use('TkAgg')
 
 # Глобальная переменная для остановки оптимизации
 stop_optimization = False
@@ -20,8 +20,8 @@ def beso(nu, length, width, volfrac, penal, rmin, fx, fy, load_value):
     Emin = 1e-9
     Emax = 1.0
 
-    nelx = int(length * 50)  # Увеличиваем плотность сетки
-    nely = int(width * 50)  # Увеличиваем плотность сетки
+    nelx = int(length * 50)
+    nely = int(width * 50)
     ndof = 2 * (nelx + 1) * (nely + 1)
 
     x = volfrac * np.ones(nely * nelx, dtype=float)
@@ -83,7 +83,6 @@ def beso(nu, length, width, volfrac, penal, rmin, fx, fy, load_value):
         if stop_optimization:
             print("Оптимизация остановлена пользователем.")
             break
-
         loop += 1
 
         sK = ((KE.flatten()[np.newaxis]).T * (Emin + (xPhys) ** penal * (Emax - Emin))).flatten(order='F')
@@ -158,12 +157,11 @@ def create_input_interface():
             length = float(length_input.text)
             width = float(width_input.text)
             load_value = float(load_input.text)
-
             if length <= 0 or width <= 0 or load_value <= 0:
                 raise ValueError("Длина, ширина балки и нагрузка должны быть положительными.")
-
             plt.close(fig)
-            beso(nu=0.3, length=length, width=width, volfrac=0.4, penal=3.0, rmin=1.5, fx=0, fy=0, load_value=load_value)
+            beso(nu=0.3, length=length, width=width, volfrac=0.4, penal=3.0, rmin=1.5,
+                 fx=0, fy=0, load_value=load_value)
         except ValueError as e:
             tk.Tk().withdraw()
             messagebox.showerror("Ошибка ввода", str(e))
@@ -253,23 +251,26 @@ def create_input_interface():
     ax.text(0.00, 0.9, "Введите параметры балки", fontsize=14, transform=ax.transAxes)
 
     # Изображение после текста
-    img = plt.imread("beam_image.png")  # Убедитесь, что изображение "beam_image.png" находится в рабочем каталоге
-    ax_img = plt.axes([0.2, 0.6, 0.5, 0.2])  # Создаем ось для изображения
+    img = plt.imread("beam_image.png")
+    ax_img = plt.axes([0.2, 0.6, 0.5, 0.2])
     ax_img.imshow(img)
     ax_img.axis('off')
 
     # Поле для длины
-    ax.text(0.05, 0.55, "Длина балки (м):", fontsize=12, transform=ax.transAxes)
+    ax.text(0.05, 0.55, "Длина балки (м):",
+            fontsize=12, transform=ax.transAxes)
     length_ax = plt.axes([0.15, 0.48, 0.3, 0.04])
     length_input = TextBox(length_ax, '', initial='2')
 
     # Поле для ширины
-    ax.text(0.5, 0.55, "Ширина балки(м):", fontsize=12, transform=ax.transAxes)
+    ax.text(0.5, 0.55, "Ширина балки(м):",
+            fontsize=12, transform=ax.transAxes)
     width_ax = plt.axes([0.5, 0.48, 0.3, 0.04])
     width_input = TextBox(width_ax, '', initial='1')
 
     # Поле для нагрузки
-    ax.text(0.05, 0.35, "Величина нагрузки (Н):", fontsize=12, transform=ax.transAxes)
+    ax.text(0.05, 0.35, "Величина нагрузки (Н):",
+            fontsize=12, transform=ax.transAxes)
     load_ax = plt.axes([0.45, 0.37, 0.3, 0.04])
     load_input = TextBox(load_ax, '', initial='10')
 
@@ -311,7 +312,8 @@ def create_input_interface():
             load_value = float(load_input.text)
 
             if length <= 0 or width <= 0 or load_value <= 0:
-                raise ValueError("Длина, ширина балки и нагрузка должны быть положительными.")
+                raise ValueError("Длина, ширина балки и нагрузка "
+                                 "должны быть положительными.")
 
             plt.close(fig)
             beso(nu=0.3, length=length, width=width, volfrac=0.4, penal=3.0, rmin=1.5, fx=0, fy=0, load_value=load_value)
